@@ -14,7 +14,7 @@ from typing import Callable
 
 from . import encode
 from .captions import store
-from .captions.style import FONTS_DIR, to_words, write_ass
+from .captions.style import FONTS_DIR, STYLE_VERSION, to_words, write_ass
 from .plan import Combo, build_combos, estimate_bytes, human_bytes
 from .probe import ClipInfo, Compatibility, check_compatibility, normalize_target, probe
 from .proc import Cancelled
@@ -223,7 +223,7 @@ def _recipe(combo: Combo, captions: Captions | None) -> str:
     parts = []
     for c in combo.clips:
         cap = captions.get(c.path) if captions else None
-        parts.append(f"{store.clip_id(c.path)}:{cap.fingerprint() if cap else '-'}")
+        parts.append(f"{store.clip_id(c.path)}:{f'v{STYLE_VERSION}-' + cap.fingerprint() if cap else '-'}")
     return "|".join(parts)
 
 
@@ -290,7 +290,7 @@ def run(
                 ass = None
                 extra = ""
                 if doc is not None and doc.words:
-                    extra = doc.fingerprint()
+                    extra = f"v{STYLE_VERSION}-{doc.fingerprint()}"
                     ass = cache / f"captions_{store.clip_id(clip.path)}_{extra}.ass"
                     write_ass(to_words(doc.words), w, h, ass, duration=clip.duration)
                 dest = encode.normalized_path(clip, cache, w, h, fps, extra)

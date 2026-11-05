@@ -8,7 +8,7 @@ import pytest
 from ad_splicer import engine
 from ad_splicer.captions import store
 from ad_splicer.captions.edit import realign
-from ad_splicer.captions.style import (HIGHLIGHT, build_events, group_phrases, to_words,
+from ad_splicer.captions.style import (build_events, group_phrases, to_words,
                                        write_ass)
 
 SPEECH = [("This", 0.10, 0.30), ("is", 0.30, 0.42), ("the", 0.42, 0.55), ("easiest", 0.55, 0.95),
@@ -28,20 +28,16 @@ def test_phrases_max_three_words_and_break_on_punctuation_and_pauses():
     assert all(len(p) <= 3 for p in phrases)
 
 
-def test_events_highlight_only_current_word_and_pop_only_on_phrase_start():
+def test_events_are_static_white_phrases():
     events = build_events(to_words(raw()), duration=3.0)
-    assert len(events) == len(SPEECH)  # one event per spoken word
-    for (s, e, text) in events:
-        assert text.count(HIGHLIGHT) == 1 and e > s
-    pops = [t for _, _, t in events if "\\fscx85" in t]
-    assert len(pops) == 4  # one per phrase
-    assert events[0][2].startswith("{\\fad") and "THIS" in events[0][2]
-    assert "IS THE" in events[0][2] and "WAY" not in events[0][2]
-    # words of the same phrase butt up against each other (no blinking)
-    assert events[0][1] == events[1][0] and events[1][1] == events[2][0]
+    assert [t for _, _, t in events] == ["THIS IS THE", "EASIEST WAY", "SAVE MONEY ON", "SHOPFY"]
+    for s, e, text in events:
+        assert e > s
+        assert "{" not in text  # no animation or colour override tags at all
+    # phrases hand over without a gap (no blinking) when speech is continuous
+    assert events[0][1] == pytest.approx(events[1][0])
     # 'way.' ends 1.20, next phrase at 1.80: a real pause, so the caption clears
-    assert events[4][1] == pytest.approx(1.20)
-    assert "." not in events[4][2]  # sentence punctuation is dropped
+    assert events[1][1] == pytest.approx(1.20)
 
 
 def test_write_ass(tmp_path):
@@ -49,7 +45,8 @@ def test_write_ass(tmp_path):
     text = p.read_text()
     assert "PlayResX: 1080" in text and "PlayResY: 1920" in text
     assert "Montserrat ExtraBold" in text
-    assert text.count("Dialogue:") == len(SPEECH)
+    assert text.count("Dialogue:") == 4
+    assert "\\c&" not in text and "\\fsc" not in text
     style = next(l for l in text.splitlines() if l.startswith("Style: Caption"))
     assert style.split(",")[-2] == str(round(1920 * 0.30))  # lower-middle
 

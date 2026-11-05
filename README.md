@@ -94,8 +94,8 @@ Useful options:
 
 ## Captions (free, on your computer)
 Tick **Add captions** before you press Start, and every ad gets CapCut-style captions, so it makes sense with the sound off:
-- **Bold white ALL-CAPS** with a black outline and soft shadow, in the lower-middle of the frame (clear of your face and the app buttons).
-- **2–3 words at a time.** Each phrase pops in gently, and **the word being spoken turns yellow**. Nothing else moves.
+- **Heavy white ALL CAPS** with a thick black outline and soft shadow, in the lower-middle of the frame (clear of your face and the app buttons). This is the common style on top-performing TikTok and Reels ads.
+- **2–3 words at a time**, switching in time with what you say. The captions are **static**: no movement, no colour highlights.
 
 How it works:
 1. **Transcribe.** Each source clip is transcribed **once**, on your computer, with the open-source Whisper model. That's 17 clips for a 10/5/2 project, not 100 ads. It's free, with no account and no API key, and nothing is uploaded.

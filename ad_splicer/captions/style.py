@@ -1,8 +1,9 @@
 """Turn word timings into a CapCut-style .ass subtitle file.
 
-Look: bold white ALL CAPS, black outline + soft shadow, lower-middle of the frame.
-Flow: 1-3 word phrases; the word being spoken turns yellow; each new phrase
-pops in subtly (85% -> 100% over 100 ms with a quick fade). Nothing else moves.
+Look (the common style on top-performing TikTok / Reels ads): heavy white ALL CAPS,
+thick black outline + soft drop shadow, lower-middle of the frame.
+Flow: 1-3 word phrases that switch in time with the speech. Static: no animation,
+no colour highlight.
 """
 
 from __future__ import annotations
@@ -11,6 +12,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+# Bump whenever the look changes so existing captioned videos get re-made.
+STYLE_VERSION = 2
+
 MAX_WORDS = 3
 MAX_CHARS = 16
 PAUSE_BREAK = 0.35   # seconds of silence that starts a new phrase
@@ -18,7 +22,6 @@ HOLD_GAP = 0.30      # keep a phrase on screen across gaps shorter than this
 MIN_EVENT = 0.04
 
 WHITE = "&H00FFFFFF"
-HIGHLIGHT = "&H0000E6FF"   # warm yellow (#FFE600) in ASS BGR order
 OUTLINE = "&H00000000"
 SHADOW = "&H96000000"      # black, ~40% opaque
 
@@ -82,16 +85,17 @@ def style_metrics(width: int, height: int) -> dict:
     size = round(0.095 * min(width, height))
     return {
         "size": size,
-        "outline": max(2, round(size * 0.08)),
-        "shadow": max(1, round(size * 0.03)),
+        "outline": max(2, round(size * 0.11)),
+        "shadow": max(1, round(size * 0.04)),
         "margin_lr": round(width * 0.075),
         "margin_v": round(height * 0.30),
     }
 
 
 def build_events(words: list[Word], duration: float | None = None) -> list[tuple[float, float, str]]:
-    """Return (start, end, ass_text) events: one per spoken word, phrase text repeated
-    with only the current word highlighted, and a pop-in on each phrase's first event."""
+    """Return (start, end, ass_text): one static, all-white event per phrase.
+    A phrase appears when its first word is spoken and stays put (no motion,
+    no colour changes) until the next phrase replaces it."""
     phrases = group_phrases(words)
     events: list[tuple[float, float, str]] = []
     for pi, phrase in enumerate(phrases):
@@ -106,24 +110,7 @@ def build_events(words: list[Word], duration: float | None = None) -> list[tuple
             p_end = min(p_end, duration)
         if p_end - p_start < MIN_EVENT:
             p_end = p_start + MIN_EVENT
-        labels = [display_text(w.text) for w in phrase]
-        popped = False
-        for wi, w in enumerate(phrase):
-            s = p_start if wi == 0 else w.start
-            e = phrase[wi + 1].start if wi + 1 < len(phrase) else p_end
-            e = min(max(e, s), p_end)
-            if e - s < MIN_EVENT and wi + 1 < len(phrase):
-                continue  # too short to see; the next word takes over
-            if popped:
-                s = max(s, events[-1][1])  # butt-join so the phrase never blinks
-            parts = [
-                f"{{\\c{HIGHLIGHT}&}}{lab}{{\\c{WHITE}&}}" if i == wi else lab
-                for i, lab in enumerate(labels)
-            ]
-            # only the first event of a phrase pops in; later ones just recolor
-            prefix = "" if popped else "{\\fad(60,0)\\fscx85\\fscy85\\t(0,100,\\fscx100\\fscy100)}"
-            popped = True
-            events.append((s, max(e, s + MIN_EVENT), prefix + " ".join(parts)))
+        events.append((p_start, p_end, " ".join(display_text(w.text) for w in phrase)))
     return events
 
 

@@ -42,7 +42,8 @@ class Combo:
 
 
 def build_combos(
-    hooks: list[ClipInfo], bodies: list[ClipInfo], ctas: list[ClipInfo], out_dir: str | Path
+    hooks: list[ClipInfo], bodies: list[ClipInfo], ctas: list[ClipInfo], out_dir: str | Path,
+    suffix: str = "",
 ) -> list[Combo]:
     out_dir = Path(out_dir)
     pad = max(2, len(str(max(len(hooks), len(bodies), len(ctas), 1))))
@@ -50,7 +51,7 @@ def build_combos(
     for (hi, h), (bi, b), (ci, c) in product(enumerate(hooks, 1), enumerate(bodies, 1), enumerate(ctas, 1)):
         code = f"H{hi:0{pad}d}_B{bi:0{pad}d}_C{ci:0{pad}d}"
         name = f"{code}__{clean_label(h.path.stem)}_{clean_label(b.path.stem)}_{clean_label(c.path.stem)}"
-        combos.append(Combo(hi, bi, ci, h, b, c, code, out_dir / f"{name}.mp4"))
+        combos.append(Combo(hi, bi, ci, h, b, c, code, out_dir / f"{name}{suffix}.mp4"))
     return combos
 
 

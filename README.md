@@ -36,7 +36,12 @@ Other safeguards:
    - **Windows:** open the `Ad Splicer` folder and double-click `Ad Splicer.exe`. If SmartScreen appears, click **More info → Run anyway**.
 
 ### Or run from source
-You need Python 3.10+ and FFmpeg.
+You need Python 3.10+ and FFmpeg. For captions, also install the speech package:
+
+```bash
+pip install -r requirements.txt
+```
+
 - **Mac:** install Python from python.org (it includes the window toolkit), then run:
 
   ```bash
@@ -87,8 +92,36 @@ Useful options:
 3. **Read results by component.** Because every ad name has the `H##_B##_C##` code, you can export results to a spreadsheet and average by hook, body or CTA. That shows which *piece* is winning, not just which ad.
 4. **Start small.** Test hooks first (for example, 10 hooks with your best body and CTA). Then test bodies on the winning hooks. Then test CTAs. That's far cheaper than running all 100 at once.
 
-## Subtitles (planned)
-Burned-in captions using free, on-device transcription (Whisper) can be added as an optional step later. It stays free, with no subscription.
+## Captions (free, on your computer)
+Tick **Add captions** before you press Start, and every ad gets CapCut-style captions, so it makes sense with the sound off:
+- **Bold white ALL-CAPS** with a black outline and soft shadow, in the lower-middle of the frame (clear of your face and the app buttons).
+- **2–3 words at a time.** Each phrase pops in gently, and **the word being spoken turns yellow**. Nothing else moves.
+
+How it works:
+1. **Transcribe.** Each source clip is transcribed **once**, on your computer, with the open-source Whisper model. That's 17 clips for a 10/5/2 project, not 100 ads. It's free, with no account and no API key, and nothing is uploaded.
+   - The first time, the app downloads the speech model once: **Accurate** is about 480 MB, **Fast** about 145 MB.
+2. **Review.** A window lists every clip with its words. Fix anything it got wrong, like brand names or slang. Just edit the text; the timing is matched for you. Press **Looks good – make the videos**.
+3. **Render.** Each clip is converted once with its captions burned in (visually lossless), then all the ads are joined losslessly.
+   - Captioned files end in `_CC.mp4`, so they can sit next to the no-caption versions.
+   - The list of ads is saved as `manifest_CC.csv`.
+
+Your fixes are saved in `<output>/captions/` and reused next time. If you change a clip's captions later, only the ads that use that clip are re-made.
+
+From the command line:
+
+```bash
+python -m ad_splicer --hooks Hooks --bodies Bodies --ctas CTAs --out "Spliced Ads" --captions --review
+```
+
+That transcribes and stops. Edit the `"text"` lines in `Spliced Ads/captions/*.json`, then render:
+
+```bash
+python -m ad_splicer --hooks Hooks --bodies Bodies --ctas CTAs --out "Spliced Ads" --captions
+```
+
+Use `--captions fast` for the smaller model.
+
+The caption font is Montserrat ExtraBold (SIL Open Font License, see `ad_splicer/fonts/OFL.txt`).
 
 ## Troubleshooting
 - **"Clips don't all match"**: this is normal when clips come from different sources. Let the app convert each clip once, or re-export everything from your editor with the same preset to get the fully lossless path.

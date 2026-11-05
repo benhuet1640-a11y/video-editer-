@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import threading
 from pathlib import Path
 
@@ -32,17 +33,21 @@ def _finish(partial: Path, final: Path) -> None:
     os.replace(partial, final)
 
 
-def normalized_path(clip: ClipInfo, cache_dir: Path, w: int, h: int, fps: str) -> Path:
+def normalized_path(clip: ClipInfo, cache_dir: Path, w: int, h: int, fps: str, extra: str = "") -> Path:
+    """Cache file for a converted clip. `extra` (e.g. a captions fingerprint) changes the key."""
     st = clip.path.stat()
-    key = f"{clip.path.resolve()}|{st.st_size}|{st.st_mtime_ns}|{w}x{h}|{fps}|{CRF}|{PRESET}|{AUDIO_BITRATE}"
+    key = (f"{clip.path.resolve()}|{st.st_size}|{st.st_mtime_ns}|{w}x{h}|{fps}|{CRF}|{PRESET}"
+           f"|{AUDIO_BITRATE}|{extra}")
     digest = hashlib.sha1(key.encode()).hexdigest()[:16]
     return cache_dir / f"{clip.path.stem[:40]}_{digest}.mp4"
 
 
 def normalize_clip(
-    clip: ClipInfo, dest: Path, w: int, h: int, fps: str, speed: str, stop: threading.Event
+    clip: ClipInfo, dest: Path, w: int, h: int, fps: str, speed: str, stop: threading.Event,
+    ass_path: Path | None = None, fonts_dir: Path | None = None,
 ) -> Path:
-    """Re-encode one source clip to the shared format (done once per clip, not per ad)."""
+    """Re-encode one source clip to the shared format (done once per clip, not per ad).
+    If `ass_path` is given, the captions are burned in during this same encode."""
     if dest.is_file() and dest.stat().st_size > 0:
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -51,6 +56,21 @@ def normalize_clip(
         f"scale={w}:{h}:force_original_aspect_ratio=decrease:flags=lanczos,"
         f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps={fps},format=yuv420p"
     )
+    cwd = None
+    if ass_path is not None:
+        # Run ffmpeg from the .ass file's folder and use relative names, which avoids
+        # filter-escaping trouble with Windows drive letters ("C:") and odd characters.
+        cwd = str(ass_path.parent)
+        fonts = ""
+        if fonts_dir is not None and fonts_dir.is_dir():
+            local_fonts = ass_path.parent / "fonts"
+            local_fonts.mkdir(exist_ok=True)
+            for f in fonts_dir.glob("*.ttf"):
+                target = local_fonts / f.name
+                if not target.exists():
+                    shutil.copy2(f, target)
+            fonts = ":fontsdir=fonts"
+        vf += f",subtitles=filename={ass_path.name}{fonts}"
     cmd = [ffmpeg_bin.ffmpeg(), "-hide_banner", "-nostdin", "-y", "-i", str(clip.path)]
     if clip.has_audio:
         audio_map = "0:a:0"
@@ -70,7 +90,7 @@ def normalize_clip(
         str(partial),
     ]
     try:
-        run_cancellable(cmd, stop)
+        run_cancellable(cmd, stop, cwd=cwd)
         _finish(partial, dest)
     finally:
         partial.unlink(missing_ok=True)

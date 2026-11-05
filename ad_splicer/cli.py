@@ -21,6 +21,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--speed", choices=["gentle", "balanced", "fast"], default="gentle")
     p.add_argument("--keep-cache", action="store_true", help="keep converted clips for re-runs")
     p.add_argument("--dry-run", action="store_true", help="only show what would happen")
+    p.add_argument("--captions", choices=["accurate", "fast"], nargs="?", const="accurate",
+                   help="burn in auto captions (free, on-device Whisper). Default quality: accurate")
+    p.add_argument("--review", action="store_true",
+                   help="with --captions: only transcribe, then stop so you can edit the 'text' in "
+                        "<out>/captions/*.json; run again without --review to render")
     p.add_argument("--version", action="version", version=__version__)
     return p
 
@@ -32,7 +37,8 @@ def main(argv: list[str] | None = None) -> int:
         return gui_main()
     args = build_parser().parse_args(argv)
     try:
-        analysis = engine.analyze(args.hooks, args.bodies, args.ctas, args.out, log=print)
+        analysis = engine.analyze(args.hooks, args.bodies, args.ctas, args.out, log=print,
+                                  captions=bool(args.captions))
     except (ValueError, OSError, FFmpegNotFound, RuntimeError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 2
@@ -44,8 +50,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[{done}/{total}] {label}", flush=True)
 
     try:
+        docs = None
+        if args.captions:
+            docs = engine.transcribe_all(analysis, quality=args.captions, speed=args.speed,
+                                         log=print, progress=progress)
+            if args.review:
+                print(f"Captions saved in {analysis.out_dir / 'captions'}. Edit the \"text\" lines, "
+                      f"then run the same command without --review.")
+                return 0
         result = engine.run(analysis, mode=args.mode, speed=args.speed, keep_cache=args.keep_cache,
-                            log=print, progress=progress)
+                            log=print, progress=progress, captions=docs)
     except KeyboardInterrupt:
         print("Interrupted.")
         return 130

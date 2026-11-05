@@ -35,6 +35,11 @@ def run_quiet(cmd: list[str], capture: bool = True) -> subprocess.CompletedProce
     )
 
 
+def run_quiet_bytes(cmd: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          stdin=subprocess.DEVNULL, **_platform_kwargs(True))
+
+
 class Cancelled(Exception):
     pass
 
@@ -43,7 +48,8 @@ class FFmpegError(RuntimeError):
     pass
 
 
-def run_cancellable(cmd: list[str], stop: threading.Event, low_priority: bool = True) -> None:
+def run_cancellable(cmd: list[str], stop: threading.Event, low_priority: bool = True,
+                    cwd: str | None = None) -> None:
     """Run a command; kill it if `stop` gets set. Raises FFmpegError on failure."""
     proc = subprocess.Popen(
         cmd,
@@ -53,6 +59,7 @@ def run_cancellable(cmd: list[str], stop: threading.Event, low_priority: bool = 
         text=True,
         encoding="utf-8",
         errors="replace",
+        cwd=cwd,
         **_platform_kwargs(low_priority),
     )
     err_chunks: list[str] = []

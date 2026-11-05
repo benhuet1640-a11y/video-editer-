@@ -13,7 +13,7 @@ def natural_key(name: str):
 
 
 def list_videos(folder: str | Path) -> list[Path]:
-    folder = Path(folder)
+    folder = Path(folder).resolve()
     if not folder.is_dir():
         raise NotADirectoryError(f"Not a folder: {folder}")
     files = [

@@ -36,12 +36,19 @@ jobs:
       - name: Download FFmpeg to bundle
         run: python scripts/fetch_ffmpeg.py vendor/ffmpeg
 
-      - name: Run tests with the bundled FFmpeg
+      - name: Check FFmpeg can draw captions (libass)
         shell: bash
+        run: |
+          vendor/ffmpeg/ffmpeg -hide_banner -filters | grep -E " subtitles "
+
+      - name: Run tests with the bundled FFmpeg (+ real Whisper on macOS)
+        shell: bash
+        env:
+          AD_SPLICER_WHISPER_TEST: "1"
         run: |
           export PATH="$PWD/vendor/ffmpeg:$PATH"
           ffmpeg -version | head -1
-          python -m pytest -q
+          python -m pytest -q -rs
 
       - name: Build app (macOS)
         if: runner.os == 'macOS'
@@ -49,7 +56,11 @@ jobs:
           pyinstaller --noconfirm --windowed --name "Ad Splicer" \
             --add-binary "vendor/ffmpeg/ffmpeg:ffmpeg" \
             --add-binary "vendor/ffmpeg/ffprobe:ffmpeg" \
+            --add-data "ad_splicer/fonts:ad_splicer/fonts" \
+            --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime \
+            --collect-data tokenizers \
             run_app.py
+          python scripts/smoke_test_app.py "dist/Ad Splicer.app/Contents/MacOS/Ad Splicer" vendor/ffmpeg "$RUNNER_TEMP/smoke"
           cd dist && ditto -c -k --keepParent "Ad Splicer.app" "../${{ matrix.name }}.zip"
 
       - name: Build app (Windows)
@@ -59,7 +70,11 @@ jobs:
           pyinstaller --noconfirm --windowed --name "Ad Splicer" \
             --add-binary "vendor/ffmpeg/ffmpeg.exe;ffmpeg" \
             --add-binary "vendor/ffmpeg/ffprobe.exe;ffmpeg" \
+            --add-data "ad_splicer/fonts;ad_splicer/fonts" \
+            --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime \
+            --collect-data tokenizers \
             run_app.py
+          python scripts/smoke_test_app.py "dist/Ad Splicer/Ad Splicer.exe" vendor/ffmpeg "$RUNNER_TEMP/smoke"
           cd dist && 7z a "../${{ matrix.name }}.zip" "Ad Splicer"
 
       - uses: actions/upload-artifact@v4

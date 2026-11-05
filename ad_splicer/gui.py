@@ -26,6 +26,9 @@ class App:
         self.vars = {k: tk.StringVar() for k, _ in FOLDERS}
         self.speed = tk.StringVar(value="gentle")
         self.keep_cache = tk.BooleanVar(value=False)
+        self.captions = tk.BooleanVar(value=False)
+        self.cap_quality = tk.StringVar(value="accurate")
+        self.caption_docs: dict | None = None
         self.analysis: engine.Analysis | None = None
         self.controls: engine.Controls | None = None
         self.worker: threading.Thread | None = None
@@ -46,12 +49,20 @@ class App:
             ttk.Radiobutton(opts, text=text, value=val, variable=self.speed).pack(side="left", padx=4)
         ttk.Checkbutton(opts, text="Keep converted clips", variable=self.keep_cache).pack(side="right")
 
+        cap = ttk.Frame(frm)
+        cap.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(0, 4))
+        ttk.Checkbutton(cap, text="Add captions (free, on this computer)", variable=self.captions,
+                        command=self.captions_changed).pack(side="left")
+        ttk.Label(cap, text="   Transcription:").pack(side="left")
+        for val, text in [("accurate", "Accurate"), ("fast", "Fast")]:
+            ttk.Radiobutton(cap, text=text, value=val, variable=self.cap_quality).pack(side="left", padx=4)
+
         self.summary = tk.Text(frm, height=9, wrap="word", relief="flat")
-        self.summary.grid(row=5, column=0, columnspan=3, sticky="nsew", pady=4)
+        self.summary.grid(row=6, column=0, columnspan=3, sticky="nsew", pady=4)
         self._set_summary("Choose your 3 clip folders and an output folder, then press Check.")
 
         btns = ttk.Frame(frm)
-        btns.grid(row=6, column=0, columnspan=3, sticky="ew", pady=4)
+        btns.grid(row=8, column=0, columnspan=3, sticky="ew", pady=4)
         self.check_btn = ttk.Button(btns, text="Check", command=self.check)
         self.start_btn = ttk.Button(btns, text="Start", command=self.start, state="disabled")
         self.pause_btn = ttk.Button(btns, text="Pause", command=self.toggle_pause, state="disabled")
@@ -62,14 +73,14 @@ class App:
         self.open_btn.pack(side="right")
 
         self.bar = ttk.Progressbar(frm, mode="determinate")
-        self.bar.grid(row=7, column=0, columnspan=3, sticky="ew", pady=4)
+        self.bar.grid(row=9, column=0, columnspan=3, sticky="ew", pady=4)
         self.status = ttk.Label(frm, text="")
-        self.status.grid(row=8, column=0, columnspan=3, sticky="w")
+        self.status.grid(row=10, column=0, columnspan=3, sticky="w")
 
         self.log = tk.Text(frm, height=10, wrap="none", state="disabled")
-        self.log.grid(row=9, column=0, columnspan=3, sticky="nsew", pady=(4, 0))
-        frm.rowconfigure(9, weight=1)
-        frm.rowconfigure(5, weight=1)
+        self.log.grid(row=11, column=0, columnspan=3, sticky="nsew", pady=(4, 0))
+        frm.rowconfigure(11, weight=1)
+        frm.rowconfigure(6, weight=1)
 
         for v in self.vars.values():
             v.trace_add("write", lambda *_: self.start_btn.configure(state="disabled"))
@@ -107,6 +118,11 @@ class App:
         self.worker.start()
 
     # ---- actions -------------------------------------------------------
+    def captions_changed(self) -> None:
+        if self.analysis and not (self.worker and self.worker.is_alive()):
+            self.analysis.set_captions(self.captions.get())
+            self._set_summary(self.analysis.summary())
+
     def check(self) -> None:
         vals = {k: v.get().strip() for k, v in self.vars.items()}
         if not all(vals.values()):
@@ -117,11 +133,12 @@ class App:
         self.stop_btn.configure(state="disabled")
         self.pause_btn.configure(state="disabled")
         self._set_summary("Reading clips...")
+        captions = self.captions.get()
 
         def work():
             try:
                 a = engine.analyze(vals["hooks"], vals["bodies"], vals["ctas"], vals["out"],
-                                   log=lambda m: self.q.put(("log", m)))
+                                   log=lambda m: self.q.put(("log", m)), captions=captions)
                 self.q.put(("analysis", a))
             except Exception as e:
                 self.q.put(("error", str(e)))
@@ -131,28 +148,71 @@ class App:
         a = self.analysis
         if not a:
             return
-        normalize = not a.compat.lossless_ok
-        if not a.pending:
+        a.set_captions(self.captions.get())
+        if not a.pending and not a.captions_on:
             messagebox.showinfo("Ad Splicer", "All videos already exist in the output folder.")
             return
-        if a.estimated_bytes(normalize) > a.free_bytes() * 0.95:
+        if a.estimated_bytes() > a.free_bytes() * 0.95:
             if not messagebox.askyesno("Low disk space",
                                        "There may not be enough free disk space. Start anyway?"):
                 return
-        if normalize and not messagebox.askokcancel(
+        if not a.captions_on and not a.compat.lossless_ok and not messagebox.askokcancel(
             "Conversion needed",
             "Your clips don't all share the same format, so each source clip will be converted once "
             "to visually-lossless H.264 before joining. Continue?"):
             return
         self.controls = engine.Controls()
         self._busy(True)
+        if a.captions_on:
+            self._transcribe(a)
+        else:
+            self._render(a, None)
+
+    def _transcribe(self, a: engine.Analysis) -> None:
+        quality, speed, controls = self.cap_quality.get(), self.speed.get(), self.controls
+        self._log("Transcribing your clips on this computer (nothing is uploaded)...")
+
+        def work():
+            try:
+                docs = engine.transcribe_all(
+                    a, quality=quality, speed=speed, controls=controls,
+                    log=lambda m: self.q.put(("log", m)),
+                    progress=lambda d, t, l: self.q.put(("progress", (d, t, l))))
+                self.q.put(("review", docs))
+            except engine.Cancelled:
+                self.q.put(("stopped", None))
+            except Exception as e:
+                self.q.put(("error", str(e)))
+        self._bg(work)
+
+    def _review(self, docs: dict) -> None:
+        from .gui_review import ReviewWindow
+        a = self.analysis
+        assert a is not None
+        sections = [
+            ("Hook", [docs[c.path] for c in a.hooks]),
+            ("Body", [docs[c.path] for c in a.bodies]),
+            ("CTA", [docs[c.path] for c in a.ctas]),
+        ]
+        self.status.configure(text="Review the captions, then press 'Looks good'.")
+
+        def done(ok: bool) -> None:
+            if ok:
+                self._render(a, docs)
+            else:
+                self._busy(False)
+                self.status.configure(text="Captions saved. Press Start again when you're ready.")
+        ReviewWindow(self.root, sections, done)
+
+    def _render(self, a: engine.Analysis, docs: dict | None) -> None:
         speed, keep, controls = self.speed.get(), self.keep_cache.get(), self.controls
 
         def work():
             try:
                 r = engine.run(a, mode="auto", speed=speed, keep_cache=keep, controls=controls,
                                log=lambda m: self.q.put(("log", m)),
-                               progress=lambda d, t, l: self.q.put(("progress", (d, t, l))))
+                               progress=lambda d, t, l: self.q.put(("progress", (d, t, l))),
+                               captions=docs)
                 self.q.put(("done", r))
             except Exception as e:
                 self.q.put(("error", str(e)))
@@ -218,6 +278,11 @@ class App:
                     self._busy(False)
                     if self.analysis:
                         self._set_summary(self.analysis.summary())
+                elif kind == "review":
+                    self._review(payload)
+                elif kind == "stopped":
+                    self._busy(False)
+                    self.status.configure(text="Stopped.")
                 elif kind == "error":
                     self._busy(False)
                     self._set_summary(f"Problem: {payload}")
